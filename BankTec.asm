@@ -2,18 +2,18 @@
 .stack 200h
 
 .data
-    ; Estructura de cuenta: 2 (ID) + 16 (nombre) + 2 (saldo) + 1 (estado)
-    ; Total: 21 bytes por cuenta
-    accounts db 210 dup(0) ; Espacio para 10 cuentas (21 bytes c/u)
+    ; Estructura de cuenta: 4 (ID) + 20 (nombre) + 4 (saldo) + 1 (estado)
+    ; Total: 29 bytes por cuenta
+    accounts db 290 dup(0) ; Espacio para 10 cuentas
     account_count dw 0 ; Cantidad de cuentas activas
     max_accounts equ 10 ; Máximo de cuentas
-    account_size equ 21 ; Tamaño de estructura cuenta
+    account_size equ 29 ; Tamaño de estructura cuenta
     
     ; Offsets dentro de la estructura
-    ID_OFFSET equ 0 ; 2 bytes
-    NAME_OFFSET equ 2 ; 16 bytes
-    BALANCE_OFFSET equ 18 ; 2 bytes
-    STATUS_OFFSET equ 20 ; 1 byte (00=Activa, FF=Inactiva)
+    ID_OFFSET equ 0  ; 4 bytes
+    NAME_OFFSET equ 4 ; 20 bytes
+    BALANCE_OFFSET equ 24 ; 4 bytes
+    STATUS_OFFSET equ 28 ; 1 byte (00=Activa, FF=Inactiva)
     
     ; Estados
     ACTIVE equ 00h
@@ -41,7 +41,7 @@
     msg_account_active db ' - Cuenta Activa',13,10,'$'
     
     inputBuffer db 10,0,10 dup(0) ; Buffer para entrada (max 8 dígitos)
-    nameBuffer db 17 dup(0) ; Buffer para nombre (16 + terminador)
+    nameBuffer db 21 dup(0) ; Buffer para nombre (20 + terminador)
 
 .code
 
@@ -69,7 +69,7 @@ read_loop:
     cmp al, 8
     je read_back
 
-    cmp cx, 15
+    cmp cx, 19
     jge read_loop
 
     mov [di], al
@@ -195,31 +195,33 @@ buscar_cuenta proc
     push bx
     push cx
     push dx
-    
+
     mov si, offset accounts
-    xor bx, bx ; Contador de cuentas
-    
+    xor cx, cx
+    xor dx, dx
+
 search_loop:
-    cmp bx, [account_count] ; Comparación con CMP
+    cmp cx, [account_count]
     jge search_not_found
-    
-    ; Obtener ID de esta cuenta
-    mov dx, [si + ID_OFFSET]
-    cmp dx, ax ; Compara con ID buscado
-    je search_found
-    
-    ; Siguiente cuenta
-    add si, account_size
-    inc bx
-    jmp search_loop
-    
-search_found:
-    clc ; Limpia carry flag
+
+    mov bx, [si + ID_OFFSET]
+    cmp bx, ax
+    jne next_entry
+    mov bx, [si + ID_OFFSET + 2]   
+    cmp bx, dx
+    jne next_entry
+
+    clc
     jmp search_end
-    
+
+next_entry:
+    add si, account_size
+    inc cx
+    jmp search_loop
+
 search_not_found:
-    stc ; Set carry flag
-    
+    stc
+
 search_end:
     pop dx
     pop cx
@@ -238,32 +240,39 @@ validar_id_unico proc
     push ax
     push bx
     push cx
+    push dx
     push si
-    
+
     mov si, offset accounts
-    xor bx, bx
-    
+    xor cx, cx          ; contador de cuentas
+    ; DX debe contener la parte alta del ID (0 si ID <= 0xFFFF)
+
 check_loop:
-    cmp bx, [account_count]
-    jge check_unique ; Si llegó al final, es único
-    
-    mov cx, [si + ID_OFFSET]
-    cmp cx, ax
-    je check_duplicate
-    
-    add si, account_size
-    inc bx
-    jmp check_loop
-    
-check_duplicate:
-    stc ; Carry = 1 (duplicado)
+    cmp cx, [account_count]
+    jge check_unique
+
+    mov bx, [si + ID_OFFSET]        ; low word
+    cmp bx, ax
+    jne next_check
+    mov bx, [si + ID_OFFSET + 2]    ; high word
+    cmp bx, dx
+    jne next_check
+
+    ; Duplicado
+    stc
     jmp check_end
-    
+
+next_check:
+    add si, account_size
+    inc cx
+    jmp check_loop
+
 check_unique:
-    clc ; Carry = 0 (único)
-    
+    clc
+
 check_end:
     pop si
+    pop dx
     pop cx
     pop bx
     pop ax
@@ -290,6 +299,7 @@ crear_cuenta proc
     jge crear_error_max
     
     ; Validación 2: ID no repetido
+    xor dx, dx
     call validar_id_unico
     jc crear_error_id
     
@@ -297,7 +307,7 @@ crear_cuenta proc
     cmp cx, 0
     jl crear_error_balance
 
-    ; Guardar el ID en la pila (lo usaremos luego, porque AX se usa para el offset)
+    ; Guardar el ID en la pila
     push ax
 
     ; Calcular offset en memoria
@@ -311,20 +321,19 @@ crear_cuenta proc
     ; Recuperar el ID original
     pop dx
 
-    ; Guardar ID (2 bytes)
     mov [si + ID_OFFSET], dx
+    mov word ptr [si + ID_OFFSET + 2], 0 
 
-    ; Copiar nombre
-    mov bx, di 
-    mov di, si 
-    add di, NAME_OFFSET    
-    xor dx, dx     
+    mov bx, di
+    mov di, si
+    add di, NAME_OFFSET
+    xor dx, dx ;
 
 copy_name_loop:
     mov al, [bx]
     cmp al, 0
     je copy_done
-    cmp dx, 15 
+    cmp dx, 20
     jge copy_done
 
     mov [di], al
@@ -335,7 +344,7 @@ copy_name_loop:
 
 copy_done:
     ; Rellenar espacios (si es necesario)
-    cmp dx, 16
+    cmp dx, 20
     jge skip_spaces
 
 fill_spaces:
@@ -343,11 +352,12 @@ fill_spaces:
     mov [di], al
     inc di
     inc dx
-    cmp dx, 16
+    cmp dx, 20
     jl fill_spaces
 
 skip_spaces:
     mov [si + BALANCE_OFFSET], cx
+    mov word ptr [si + BALANCE_OFFSET + 2], 0 
     
     mov al, ACTIVE
     mov [si + STATUS_OFFSET], al
@@ -466,6 +476,7 @@ crear_proseguir:
     
     ; Llamar crear_cuenta con validaciones
     mov ax, bx
+    xor dx, dx
     mov di, offset nameBuffer
     call crear_cuenta
     jc crear_fallido
@@ -532,7 +543,8 @@ procesar_consultar_saldo proc
     
     ; Leer ID
     call leer_numero
-    
+    xor dx, dx
+
     ; Buscar and consultar
     call consultar_saldo
     jc consultar_fallido
