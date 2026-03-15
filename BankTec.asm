@@ -34,9 +34,9 @@
     msg_success db ' cuenta creada exitosamente.',13,10,'$'
     msg_error_id db 'Error: ID ya existe.',13,10,'$'
     msg_error_balance db 'Error: Saldo debe ser >= 0.',13,10,'$'
-    msg_error_max db 'Error: Maximo de cuentas alcanzado.',13,10,'$'
+    msg_error_max db 13,10,'Error: Maximo de cuentas alcanzado.',13,10,'$'
     msg_error_not_found db 'Error: Cuenta no encontrada.',13,10,'$'
-    msg_query_id db 'Ingrese ID de cuenta a consultar: $'
+    msg_query_id db 13,10,'Ingrese ID de cuenta a consultar: $'
     msg_current_balance db 'Saldo actual: $'
     msg_account_active db ' - Cuenta Activa',13,10,'$'
     
@@ -58,35 +58,36 @@ leer_string proc
     push cx
     push dx
     push si
-    
-    xor cx, cx ; Contador de caracteres
+    xor cx, cx
 
 read_loop:
-    mov ah, 01h ; INT 21h función 01 = leer carácter
+    mov ah, 01h
     int 21h
-    
-    cmp al, 13 ; Enter?
+
+    cmp al, 13 
     je read_done
-    cmp al, 8 ; Backspace?
+    cmp al, 8
     je read_back
-    
-    cmp cx, 15 ; Máximo 16 caracteres (-1 por terminador)
+
+    cmp cx, 15
     jge read_loop
-    
-    mov [di + cx], al
+
+    mov [di], al
+    inc di
     inc cx
     jmp read_loop
-    
+
 read_back:
     cmp cx, 0
     je read_loop
+    dec di
     dec cx
     jmp read_loop
-    
+
 read_done:
     mov al, 0
-    mov [di + cx], al ; Terminador nulo
-    
+    mov [di], al
+
     pop si
     pop dx
     pop cx
@@ -109,17 +110,17 @@ leer_numero proc
     push si
     
     mov di, offset inputBuffer
-    call leer_string ; Lee la cadena
+    call leer_string
     
-    xor ax, ax ; Resultado = 0
+    xor ax, ax
     mov si, offset inputBuffer
     
 convert_loop:
-    mov cl, [si] ; Lee carácter
-    cmp cl, 0 ; Fin de cadena?
+    mov cl, [si] 
+    cmp cl, 0 
     je convert_done
     
-    cmp cl, '0' ; Es dígito?
+    cmp cl, '0' 
     jl convert_error
     cmp cl, '9'
     jg convert_error
@@ -289,75 +290,87 @@ crear_cuenta proc
     jge crear_error_max
     
     ; Validación 2: ID no repetido
-    call validar_id_unico ; Usa comparación CMP
+    call validar_id_unico
     jc crear_error_id
     
     ; Validación 3: Saldo >= 0
     cmp cx, 0
     jl crear_error_balance
-    
+
+    ; Guardar el ID en la pila (lo usaremos luego, porque AX se usa para el offset)
+    push ax
+
     ; Calcular offset en memoria
     mov si, offset accounts
     mov bx, [account_count]
     mov ax, bx
-    mov dx, account_size
-    mul dx
+    mov bx, account_size
+    mul bx
     add si, ax
-    
+
+    ; Recuperar el ID original
+    pop dx
+
     ; Guardar ID (2 bytes)
-    mov ax, [account_count]
-    mov [si + ID_OFFSET], ax
-    
+    mov [si + ID_OFFSET], dx
+
     ; Copiar nombre
-    mov bx, 0
+    mov bx, di 
+    mov di, si 
+    add di, NAME_OFFSET    
+    xor dx, dx     
+
 copy_name_loop:
-    mov al, [di + bx]
+    mov al, [bx]
     cmp al, 0
     je copy_done
-    cmp bx, 15 ; Máximo 16 caracteres
+    cmp dx, 15 
     jge copy_done
-    
-    mov [si + NAME_OFFSET + bx], al
+
+    mov [di], al
     inc bx
+    inc di
+    inc dx
     jmp copy_name_loop
-    
+
 copy_done:
     ; Rellenar espacios (si es necesario)
-    cmp bx, 16
+    cmp dx, 16
     jge skip_spaces
-    
+
 fill_spaces:
     mov al, ' '
-    mov [si + NAME_OFFSET + bx], al
-    inc bx
-    cmp bx, 16
+    mov [di], al
+    inc di
+    inc dx
+    cmp dx, 16
     jl fill_spaces
-    
+
 skip_spaces:
-    ; Guardar saldo
     mov [si + BALANCE_OFFSET], cx
     
-    ; Guardar estado = Activa
     mov al, ACTIVE
     mov [si + STATUS_OFFSET], al
     
-    ; Incrementar contador
     inc [account_count]
     
-    clc ; Sin error
+    clc 
     jmp crear_end
     
 crear_error_max:
+    mov al, 1
     stc
     jmp crear_end
     
 crear_error_id:
+    mov al, 2 ; código de error: ID duplicado
     stc
     jmp crear_end
     
 crear_error_balance:
+    mov al, 3 ; código de error: saldo negativo
     stc
-    
+
 crear_end:
     pop di
     pop si
@@ -379,7 +392,7 @@ consultar_saldo proc
     push cx
     push si
     
-    call buscar_cuenta ; Búsqueda lineal
+    call buscar_cuenta 
     jc consultar_error
     
     ; Si encontrado, SI ya apunta a la cuenta
@@ -411,9 +424,21 @@ procesar_crear_cuenta proc
     push dx
     push si
     push di
-    
+
+    ; Verificar límite de cuentas
+    mov bx, [account_count]
+    cmp bx, max_accounts
+    jl crear_proseguir
+
+    mov ah, 09h
+    mov dx, offset msg_error_max
+    int 21h
+    jmp crear_fin
+
+crear_proseguir:
+
     ; Imprimir "Nombre: "
-    mov ah, 09h ; INT 21h función 09 = imprrime string
+    mov ah, 09h 
     mov dx, offset msg_name
     int 21h
     
@@ -453,10 +478,31 @@ procesar_crear_cuenta proc
     
 crear_fallido:
     ; Determinar cuál fue el error
+    cmp al, 1
+    je mostrar_error_max
+    cmp al, 3
+    je mostrar_error_balance
+    ; por defecto: ID duplicado
+
+mostrar_error_id:
     mov ah, 09h
-    mov dx, offset msg_error_id ; Mostrar error por defecto
+    mov dx, offset msg_error_id
     int 21h
-    
+    jmp fin_error
+
+mostrar_error_max:
+    mov ah, 09h
+    mov dx, offset msg_error_max
+    int 21h
+    jmp fin_error
+
+mostrar_error_balance:
+    mov ah, 09h
+    mov dx, offset msg_error_balance
+    int 21h
+
+fin_error:
+
 crear_fin:
     pop di
     pop si
@@ -492,12 +538,14 @@ procesar_consultar_saldo proc
     jc consultar_fallido
     
     ; Éxito: mostrar saldo
+    push ax
     mov ah, 09h
     mov dx, offset msg_current_balance
     int 21h
-    
-    call imprimir_numero ; AX ya tiene el saldo
-    
+    pop ax
+
+    call imprimir_numero 
+
     mov ah, 09h
     mov dx, offset msg_account_active
     int 21h
@@ -535,7 +583,7 @@ main_loop:
     ; Leer opción
     mov ah, 01h
     int 21h
-    
+
     cmp al, '1'
     je opcion_crear
     cmp al, '2'
