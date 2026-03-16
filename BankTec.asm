@@ -55,6 +55,7 @@
     msg_success_deposit db 'Depósito exitoso.',13,10,'$'
     msg_success_withdraw db 'Retiro exitoso.',13,10,'$'
 
+
 .code
 
 ; ============================================================================
@@ -626,7 +627,7 @@ depositar_exito:
     mov [si + BALANCE_OFFSET + 2], dx ; Asegura que el saldo se mantenga dentro de 32 bits
 
     mov ah, 09h
-    mov dx, offset msg_success
+    mov dx, offset msg_success_deposit
     int 21h
     jmp fin_depositar
 
@@ -651,6 +652,81 @@ fin_depositar:
 
     ret
 procesar_depositar endp
+
+
+; ============================================================================
+; PROCEDIMIENTO: procesar_retirar
+; Entrada: ninguna
+; Salida: ninguna
+; Nota: 
+; ============================================================================
+procesar_retirar proc
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    ; Imprimir "Ingrese ID: "
+    mov ah, 09h
+    mov dx, offset msg_withdraw_account
+    int 21h
+    ; Leer ID
+    call leer_numero
+    call buscar_cuenta
+    jc cuenta_no_encontrada_retirar
+
+    ; Verificar que la cuenta esté activa
+    mov al, [si + STATUS_OFFSET]
+    cmp al, ACTIVE
+    jne cuenta_no_encontrada_retirar
+
+    ; Leer monto a retirar
+    mov ah, 09h
+    mov dx, offset msg_withdraw_amount
+    int 21h
+    call leer_numero
+
+    mov bx, [si + BALANCE_OFFSET] ; saldo actual (low word)
+    mov cx, [si + BALANCE_OFFSET + 2] ; saldo actual (high word)
+    
+    sub bx, ax ; nuevo saldo low
+    sbb cx, dx ; nuevo saldo high (considera borrow)   
+
+    jo retirar_fallido ; Si hay overflow, falla
+    jc retirar_fallido ; Si hay carry, falla (saldo > 0xFFFFFFFF)
+
+
+retirar_exito:
+    mov [si + BALANCE_OFFSET], bx
+    mov [si + BALANCE_OFFSET + 2], cx
+    
+    mov ah, 09h
+    mov dx, offset msg_success_withdraw
+    int 21h
+    jmp fin_retirar
+
+retirar_fallido:
+    mov ah, 09h
+    mov dx, offset msg_error_too_much_on_account
+    int 21h
+    jmp fin_retirar
+
+cuenta_no_encontrada_retirar:
+    mov ah, 09h
+    mov dx, offset msg_error_not_found
+    int 21h
+    
+fin_retirar:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+
+    ret
+procesar_retirar endp
 
 ; ============================================================================
 ; PROCEDIMIENTO: procesar_consultar_saldo
@@ -728,6 +804,8 @@ main_loop:
     je opcion_crear
     cmp al, '2'
     je opcion_depositar
+    cmp al, '3'
+    je opcion_retirar
     cmp al, '4'
     je opcion_consultar
     cmp al, '7'
@@ -741,6 +819,10 @@ opcion_crear:
     
 opcion_depositar:
     call procesar_depositar
+    jmp main_loop
+
+opcion_retirar:
+    call procesar_retirar
     jmp main_loop
 
 opcion_consultar:
