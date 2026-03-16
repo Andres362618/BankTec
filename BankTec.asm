@@ -5,7 +5,7 @@
     ; Estructura de cuenta: 4 (ID) + 20 (nombre) + 4 (saldo) + 1 (estado)
     ; Total: 29 bytes por cuenta
     accounts db 290 dup(0) ; Espacio para 10 cuentas
-    account_count dw 0 ; Cantidad de cuentas activas
+    account_count dw 0 ; Cantidad de cuentas creadas, independiente del estado
     max_accounts equ 10 ; Máximo de cuentas
     account_size equ 29 ; Tamaño de estructura cuenta
     
@@ -23,8 +23,10 @@
     ; Opciones del menú
     msg_menu db 13,10,'===== SISTEMA BANCARIO =====',13,10 
              db '1. Crear Cuenta',13,10
-             db '2. Consultar Saldo',13,10 
-             db '3. Salir',13,10
+             db '2. Depositar dinero',13,10
+             db '3. Retirar dinero',13,10
+             db '4. Consultar Saldo',13,10 
+             db '7. Salir',13,10
              db 'Opcion: $'
     
     ; Mensajes para crear cuenta
@@ -42,6 +44,16 @@
     
     inputBuffer db 10,0,10 dup(0) ; Buffer para entrada (max 8 dígitos)
     nameBuffer db 21 dup(0) ; Buffer para nombre (20 + terminador)
+
+    ; Mensajes para depositar y retirar
+    msg_deposit_account db 13,10,'Ingrese ID de cuenta para depositar: $'
+    msg_withdraw_account db 13,10,'Ingrese ID de cuenta para retirar: $'
+    msg_deposit_amount db 13,10,'Monto a depositar: $'
+    msg_withdraw_amount db 13,10,'Monto a retirar: $'
+    msg_error_inactive db 'Error: Cuenta inactiva.',13,10,'$'
+    msg_error_too_much_on_account db 'Error: Saldo excede el límite.',13,10,'$'
+    msg_success_deposit db 'Depósito exitoso.',13,10,'$'
+    msg_success_withdraw db 'Retiro exitoso.',13,10,'$'
 
 .code
 
@@ -98,14 +110,13 @@ leer_string endp
 
 ; ============================================================================
 ; PROCEDIMIENTO: leer_numero
-; Salida: AX = número leído
+; Salida: DX:AX = número leído
 ; Nota: Convierte ASCII a número
 ; ============================================================================
 
 leer_numero proc
     push bx
     push cx
-    push dx
     push di
     push si
     
@@ -113,9 +124,11 @@ leer_numero proc
     call leer_string
     
     xor ax, ax
+    xor dx, dx
     mov si, offset inputBuffer
     
 convert_loop:
+    xor cx, cx
     mov cl, [si] 
     cmp cl, 0 
     je convert_done
@@ -126,21 +139,36 @@ convert_loop:
     jg convert_error
     
     sub cl, '0' ; Convierte ASCII a número
-    mov dx, ax
+
+
+    
+
+    push ax ; Guardar parte baja del número antes de multiplicar
+    ; Multiplicar parte alta por 10
+    mov ax, dx
     mov bx, 10
-    mul bx ; AX = AX * 10
-    add al, cl ; AX += dígito
+    mul bx
+    mov dx, ax ; Parte alta = parte alta * 10
+    pop ax ; Recuperar parte baja
+    push dx ; Guardar parte alta antes de multiplicar parte baja
+    mul bx ; Parte baja = parte baja * 10
+    add ax, cx ; AX += dígito
+    pop bx ; Recuperar parte alta del número
+    adc dx, bx ; Suma con carry para parte alta
+
+    jo convert_error ; Si hay overflow, error
     
     inc si
     jmp convert_loop
     
 convert_error:
     mov ax, 0 ; Retorna 0 si error
+    mov dx, 0
+    jmp convert_done
     
 convert_done:
     pop si
     pop di
-    pop dx
     pop cx
     pop bx
     ret
@@ -148,7 +176,7 @@ leer_numero endp
 
 ; ============================================================================
 ; PROCEDIMIENTO: imprimir_numero
-; Entrada: AX = número a imprimir
+; Entrada: DX:AX = número a imprimir
 ; Nota: Convierte número a ASCII
 ; ============================================================================
 
@@ -158,14 +186,32 @@ imprimir_numero proc
     push cx
     push dx
     
-    mov bx, 10
+    
     mov cx, 0
     
 divide_loop:
-    xor dx, dx
-    div bx
+    push dx ; Guarda parte alta antes de dividir
+    mov bx, 10
+    div bx ; Parte baja = parte baja / 10, residuo en DX
+    pop bx ; Recupera parte alta
     push dx ; Guarda residuo
+    push ax ; Guarda parte baja antes de dividir
+    mov ax, bx ; Carga parte alta en AX para parte alta / 10
+    mov bx, 10
+    xor dx, dx ; Limpia DX antes de dividir
+    div bx 
+    push ax ; Guarda parte alta después de dividir
+    mov ax, dx ; Carga residuo en AX para convertir a dígito
+    mov bx, 010000d
+    mul bx ; Multiplica el dígito por 10 para sumarlo a la parte alta
+    pop bx ; Recupera parte alta después de multiplicar el dígito
+    pop ax ; Recupera parte baja original
+    add ax, dx ; Suma el residuo para obtener el dígito actual
+    mov dx, bx ; Actualiza parte alta con el resultado de la división
+
     inc cx
+    cmp dx, 0
+    jne divide_loop
     cmp ax, 0
     jne divide_loop
     
@@ -186,7 +232,7 @@ imprimir_numero endp
 
 ; ============================================================================
 ; PROCEDIMIENTO: buscar_cuenta
-; Entrada: AX = ID de cuenta
+; Entrada: DX:AX = ID de cuenta
 ; Salida: SI = offset de la cuenta en memoria, CF = 0 si encontrado
 ; ============================================================================
 
@@ -197,8 +243,7 @@ buscar_cuenta proc
     push dx
 
     mov si, offset accounts
-    xor cx, cx
-    xor dx, dx
+    xor cx, cx ; contador de cuentas
 
 search_loop:
     cmp cx, [account_count]
@@ -232,7 +277,7 @@ buscar_cuenta endp
 
 ; ============================================================================
 ; PROCEDIMIENTO: validar_id_unico
-; Entrada: AX = ID a validar
+; Entrada: DX:AX = ID a validar
 ; Salida: CF = 0 si único (OK), CF = 1 si duplicado
 ; ============================================================================
 
@@ -281,7 +326,7 @@ validar_id_unico endp
 
 ; ============================================================================
 ; PROCEDIMIENTO: crear_cuenta
-; Entrada: AX = ID, DI = buffer nombre, CX = saldo
+; Entrada: BX:AX = ID, DI = buffer nombre, DX:CX = saldo
 ; Salida: CF = 0 si éxito, CF = 1 si error
 ; ============================================================================
 
@@ -293,22 +338,23 @@ crear_cuenta proc
     push si
     push di
     
+    ; Guardar saldo en la pila
+    push dx ; Guardar parte alta del saldo
+    push cx ; Guardar parte baja del saldo
+    
+
+    ; Guardar el ID en la pila
+    push bx ; Guardar parte alta del ID
+    push ax ; Guardar parte baja del ID
+
     ; Validación 1: Número máximo de cuentas
     mov bx, [account_count]
     cmp bx, max_accounts
     jge crear_error_max
     
     ; Validación 2: ID no repetido
-    xor dx, dx
     call validar_id_unico
     jc crear_error_id
-    
-    ; Validación 3: Saldo >= 0
-    cmp cx, 0
-    jl crear_error_balance
-
-    ; Guardar el ID en la pila
-    push ax
 
     ; Calcular offset en memoria
     mov si, offset accounts
@@ -319,10 +365,10 @@ crear_cuenta proc
     add si, ax
 
     ; Recuperar el ID original
-    pop dx
-
+    pop dx ; Parte baja del ID
     mov [si + ID_OFFSET], dx
-    mov word ptr [si + ID_OFFSET + 2], 0 
+    pop dx ; Parte alta del ID
+    mov [si + ID_OFFSET + 2], dx
 
     mov bx, di
     mov di, si
@@ -356,8 +402,10 @@ fill_spaces:
     jl fill_spaces
 
 skip_spaces:
+    pop cx ; Recuperar parte baja del saldo
+    pop dx ; Recuperar parte alta del saldo
     mov [si + BALANCE_OFFSET], cx
-    mov word ptr [si + BALANCE_OFFSET + 2], 0 
+    mov [si + BALANCE_OFFSET + 2], dx
     
     mov al, ACTIVE
     mov [si + STATUS_OFFSET], al
@@ -393,8 +441,8 @@ crear_cuenta endp
 
 ; ============================================================================
 ; PROCEDIMIENTO: consultar_saldo
-; Entrada: AX = ID de cuenta a buscar
-; Salida: AX = saldo, CF = 0 si encontrado
+; Entrada: DX:AX = ID de cuenta a buscar
+; Salida: DX:AX = saldo, CF = 0 si encontrado
 ; ============================================================================
 
 consultar_saldo proc
@@ -407,6 +455,7 @@ consultar_saldo proc
     
     ; Si encontrado, SI ya apunta a la cuenta
     mov ax, [si + BALANCE_OFFSET]
+    mov dx, [si + BALANCE_OFFSET + 2]
     clc
     jmp consultar_end
     
@@ -463,7 +512,10 @@ crear_proseguir:
     
     ; Leer ID
     call leer_numero
-    mov bx, ax ; Guardar ID en BX
+    push ax
+    push dx ; Guardar ID para validación posterior
+
+
     
     ; Imprimir "Saldo: "
     mov ah, 09h
@@ -472,11 +524,11 @@ crear_proseguir:
     
     ; Leer saldo
     call leer_numero
-    mov cx, ax ; Guardar saldo en CX
+    mov cx, ax ; Guardar saldo en DX:CX
     
     ; Llamar crear_cuenta con validaciones
-    mov ax, bx
-    xor dx, dx
+    pop bx ; Recuperar parte alta del ID para crear_cuenta
+    pop ax ; Recuperar parte baja del ID para crear_cuenta
     mov di, offset nameBuffer
     call crear_cuenta
     jc crear_fallido
@@ -524,6 +576,82 @@ crear_fin:
     ret
 procesar_crear_cuenta endp
 
+
+; ============================================================================
+; PROCEDIMIENTO: procesar_depositar
+; Entrada: ninguna
+; Salida: ninguna
+; Nota: 
+; ============================================================================
+procesar_depositar proc
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    ; Imprimir "Ingrese ID: "
+    mov ah, 09h
+    mov dx, offset msg_deposit_account
+    int 21h
+    ; Leer ID
+    call leer_numero
+    call buscar_cuenta
+    jc cuenta_no_encontrada
+
+    ; Verificar que la cuenta esté activa
+    mov al, [si + STATUS_OFFSET]
+    cmp al, ACTIVE
+    jne cuenta_no_encontrada
+
+    ; Leer monto a depositar
+    mov ah, 09h
+    mov dx, offset msg_deposit_amount
+    int 21h
+    call leer_numero
+
+    ; Verificar que el nuevo saldo no exceda 0xFFFFFFFF
+    mov bx, [si + BALANCE_OFFSET] ; saldo actual (low word)
+    mov cx, [si + BALANCE_OFFSET + 2] ; saldo actual (high word)
+    
+    add ax, bx ; nuevo saldo low
+    adc dx, cx ; nuevo saldo high (considera carry)   
+
+    jo depositar_fallido ; Si hay overflow, falla
+    jc depositar_fallido ; Si hay carry, falla (saldo > 0xFFFFFFFF)
+
+
+depositar_exito:
+    mov [si + BALANCE_OFFSET], ax
+    mov [si + BALANCE_OFFSET + 2], dx ; Asegura que el saldo se mantenga dentro de 32 bits
+
+    mov ah, 09h
+    mov dx, offset msg_success
+    int 21h
+    jmp fin_depositar
+
+depositar_fallido:
+    mov ah, 09h
+    mov dx, offset msg_error_too_much_on_account
+    int 21h
+    jmp fin_depositar
+
+cuenta_no_encontrada:
+    mov ah, 09h
+    mov dx, offset msg_error_not_found
+    int 21h
+    
+fin_depositar:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+
+    ret
+procesar_depositar endp
+
 ; ============================================================================
 ; PROCEDIMIENTO: procesar_consultar_saldo
 ; Entrada: ninguna
@@ -543,7 +671,6 @@ procesar_consultar_saldo proc
     
     ; Leer ID
     call leer_numero
-    xor dx, dx
 
     ; Buscar and consultar
     call consultar_saldo
@@ -551,11 +678,12 @@ procesar_consultar_saldo proc
     
     ; Éxito: mostrar saldo
     push ax
+    push dx
     mov ah, 09h
     mov dx, offset msg_current_balance
     int 21h
+    pop dx
     pop ax
-
     call imprimir_numero 
 
     mov ah, 09h
@@ -599,16 +727,22 @@ main_loop:
     cmp al, '1'
     je opcion_crear
     cmp al, '2'
+    je opcion_depositar
+    cmp al, '4'
     je opcion_consultar
-    cmp al, '3'
+    cmp al, '7'
     je opcion_salir
     
     jmp main_loop
-    
+
 opcion_crear:
     call procesar_crear_cuenta
     jmp main_loop
     
+opcion_depositar:
+    call procesar_depositar
+    jmp main_loop
+
 opcion_consultar:
     call procesar_consultar_saldo
     jmp main_loop
