@@ -44,7 +44,8 @@
     msg_current_balance db 'Saldo actual: $'
     msg_account_active db ' - Cuenta Activa',13,10,'$'
     msg_pending_report db 13,10,'Funcion Mostrar Reporte en construccion.',13,10,'$'
-    msg_pending_disable db 13,10,'Funcion Desactivar Cuenta en construccion.',13,10,'$'
+    msg_disable_account db 13,10,'Ingrese ID de cuenta a desactivar: $'
+    msg_success_disable db 'Cuenta desactivada exitosamente.',13,10,'$'
     
     inputBuffer db 10,0,10 dup(0) ; Buffer para entrada (max 8 dígitos)
     nameBuffer db 21 dup(0) ; Buffer para nombre (20 + terminador)
@@ -993,7 +994,7 @@ procesar_consultar_saldo endp
 ; PROCEDIMIENTO: procesar_mostrar_reporte
 ; Entrada: ninguna
 ; Salida: ninguna
-; Nota: Muestra el reporte general de cuentas 
+; Nota: Muestra el reporte general de cuentas (En construcción)
 ; ============================================================================
 procesar_mostrar_reporte proc
     push ax
@@ -1013,17 +1014,59 @@ procesar_mostrar_reporte endp
 ; PROCEDIMIENTO: procesar_desactivar_cuenta
 ; Entrada: ninguna
 ; Salida: ninguna
-; Nota: Desactiva una cuenta por ID (cambia estado a INACTIVE)
+; Nota: Busca una cuenta por ID y la marca como inactiva
 ; ============================================================================
 procesar_desactivar_cuenta proc
     push ax
+    push bx
+    push cx
     push dx
+    push si
+    push di
 
+    ; Pedir ID de la cuenta
     mov ah, 09h
-    mov dx, offset msg_pending_disable
+    mov dx, offset msg_disable_account
     int 21h
 
+    ; Leer ID
+    call leer_numero_id
+
+    ; Buscar cuenta
+    call buscar_cuenta
+    jc desactivar_no_encontrada
+
+    ; Verificar si ya está inactiva
+    mov al, [si + STATUS_OFFSET]
+    cmp al, INACTIVE
+    je desactivar_ya_inactiva
+
+    ; Cambiar estado a inactiva
+    mov byte ptr [si + STATUS_OFFSET], INACTIVE
+
+    ; Mensaje de éxito
+    mov ah, 09h
+    mov dx, offset msg_success_disable
+    int 21h
+    jmp desactivar_fin
+
+desactivar_ya_inactiva:
+    mov ah, 09h
+    mov dx, offset msg_error_inactive
+    int 21h
+    jmp desactivar_fin
+
+desactivar_no_encontrada:
+    mov ah, 09h
+    mov dx, offset msg_error_not_found
+    int 21h
+
+desactivar_fin:
+    pop di
+    pop si
     pop dx
+    pop cx
+    pop bx
     pop ax
     ret
 procesar_desactivar_cuenta endp
