@@ -25,7 +25,9 @@
              db '1. Crear Cuenta',13,10
              db '2. Depositar dinero',13,10
              db '3. Retirar dinero',13,10
-             db '4. Consultar Saldo',13,10 
+             db '4. Consultar Saldo',13,10
+             db '5. Mostrar Reporte General',13,10
+             db '6. Desactivar Cuenta',13,10
              db '7. Salir',13,10
              db 'Opcion: $'
     
@@ -41,6 +43,8 @@
     msg_query_id db 13,10,'Ingrese ID de cuenta a consultar: $'
     msg_current_balance db 'Saldo actual: $'
     msg_account_active db ' - Cuenta Activa',13,10,'$'
+    msg_pending_report db 13,10,'Funcion Mostrar Reporte en construccion.',13,10,'$'
+    msg_pending_disable db 13,10,'Funcion Desactivar Cuenta en construccion.',13,10,'$'
     
     inputBuffer db 10,0,10 dup(0) ; Buffer para entrada (max 8 dígitos)
     nameBuffer db 21 dup(0) ; Buffer para nombre (20 + terminador)
@@ -986,6 +990,45 @@ consultar_fin:
 procesar_consultar_saldo endp
 
 ; ============================================================================
+; PROCEDIMIENTO: procesar_mostrar_reporte
+; Entrada: ninguna
+; Salida: ninguna
+; Nota: Muestra el reporte general de cuentas 
+; ============================================================================
+procesar_mostrar_reporte proc
+    push ax
+    push dx
+
+    mov ah, 09h
+    mov dx, offset msg_pending_report
+    int 21h
+
+    pop dx
+    pop ax
+    ret
+procesar_mostrar_reporte endp
+
+
+; ============================================================================
+; PROCEDIMIENTO: procesar_desactivar_cuenta
+; Entrada: ninguna
+; Salida: ninguna
+; Nota: Desactiva una cuenta por ID (cambia estado a INACTIVE)
+; ============================================================================
+procesar_desactivar_cuenta proc
+    push ax
+    push dx
+
+    mov ah, 09h
+    mov dx, offset msg_pending_disable
+    int 21h
+
+    pop dx
+    pop ax
+    ret
+procesar_desactivar_cuenta endp
+
+; ============================================================================
 ; PROCEDIMIENTO PRINCIPAL
 ; ============================================================================
 main:
@@ -1013,6 +1056,10 @@ main_loop:
     je opcion_retirar
     cmp al, '4'
     je opcion_consultar
+    cmp al, '5'
+    je opcion_reporte
+    cmp al, '6'
+    je opcion_desactivar
     cmp al, '7'
     je opcion_salir
     
@@ -1032,6 +1079,14 @@ opcion_retirar:
 
 opcion_consultar:
     call procesar_consultar_saldo
+    jmp main_loop
+
+opcion_reporte:
+    call procesar_mostrar_reporte
+    jmp main_loop
+
+opcion_desactivar:
+    call procesar_desactivar_cuenta
     jmp main_loop
     
 opcion_salir:
