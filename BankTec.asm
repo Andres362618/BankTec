@@ -43,12 +43,42 @@
     msg_query_id db 13,10,'Ingrese ID de cuenta a consultar: $'
     msg_current_balance db 'Saldo actual: $'
     msg_account_active db ' - Cuenta Activa',13,10,'$'
-    msg_pending_report db 13,10,'Funcion Mostrar Reporte en construccion.',13,10,'$'
-    msg_disable_account db 13,10,'Ingrese ID de cuenta a desactivar: $'
-    msg_success_disable db 'Cuenta desactivada exitosamente.',13,10,'$'
-    
+
     inputBuffer db 10,0,10 dup(0) ; Buffer para entrada (max 8 dígitos)
     nameBuffer db 21 dup(0) ; Buffer para nombre (20 + terminador)
+
+    ; Mensajes para desactivar cuenta
+    msg_disable_account db 13,10,'Ingrese ID de cuenta a desactivar: $'
+    msg_success_disable db 'Cuenta desactivada exitosamente.',13,10,'$'
+
+    ; Mensajes para reporte general
+    msg_report_title db 13,10,'===== REPORTE GENERAL =====',13,10,'$'
+    msg_report_active db 'Total de cuentas activas: $'
+    msg_report_inactive db 13,10,'Total de cuentas inactivas: $'
+    msg_report_total db 13,10,'Saldo total del banco: $'
+    msg_report_max db 13,10,'Cuenta con mayor saldo - ID: $'
+    msg_report_min db 13,10,'Cuenta con menor saldo - ID: $'
+    msg_report_balance db ' | Saldo: $'
+    msg_report_no_max db 13,10,'Cuenta con mayor saldo: N/A$'
+    msg_report_no_min db 13,10,'Cuenta con menor saldo: N/A$'
+    msg_newline db 13,10,'$'
+
+    ; Variables auxiliares para reporte
+    report_active_count dw 0
+    report_inactive_count dw 0
+
+    report_total_low dw 0
+    report_total_high dw 0
+
+    report_max_id_low dw 0
+    report_max_id_high dw 0
+    report_max_balance_low dw 0
+    report_max_balance_high dw 0
+
+    report_min_id_low dw 0
+    report_min_id_high dw 0
+    report_min_balance_low dw 0
+    report_min_balance_high dw 0
 
     ; Mensajes para depositar y retirar
     msg_deposit_account db 13,10,'Ingrese ID de cuenta para depositar: $'
@@ -59,7 +89,6 @@
     msg_error_too_much_on_account db 'Error: Saldo excede el límite.',13,10,'$'
     msg_success_deposit db 'Depósito exitoso.',13,10,'$'
     msg_success_withdraw db 'Retiro exitoso.',13,10,'$'
-
 
 .code
 
@@ -994,17 +1023,226 @@ procesar_consultar_saldo endp
 ; PROCEDIMIENTO: procesar_mostrar_reporte
 ; Entrada: ninguna
 ; Salida: ninguna
-; Nota: Muestra el reporte general de cuentas (En construcción)
+; Nota: Recorre todas las cuentas creadas y muestra el reporte general
 ; ============================================================================
 procesar_mostrar_reporte proc
     push ax
+    push bx
+    push cx
     push dx
+    push si
+    push di
 
+    ; Inicializar acumuladores y contadores
+    mov word ptr [report_active_count], 0
+    mov word ptr [report_inactive_count], 0
+    mov word ptr [report_total_low], 0
+    mov word ptr [report_total_high], 0
+
+    ; Mostrar título
     mov ah, 09h
-    mov dx, offset msg_pending_report
+    mov dx, offset msg_report_title
     int 21h
 
+    ; Si no hay cuentas creadas, mostrar reporte vacío
+    mov cx, [account_count]
+    cmp cx, 0
+    jne reporte_con_datos
+
+    ; Activas = 0
+    mov ah, 09h
+    mov dx, offset msg_report_active
+    int 21h
+    xor dx, dx
+    xor ax, ax
+    call imprimir_numero_id
+
+    ; Inactivas = 0
+    mov ah, 09h
+    mov dx, offset msg_report_inactive
+    int 21h
+    xor dx, dx
+    xor ax, ax
+    call imprimir_numero_id
+
+    ; Total = 0.0000
+    mov ah, 09h
+    mov dx, offset msg_report_total
+    int 21h
+    xor dx, dx
+    xor ax, ax
+    call imprimir_numero_saldo
+
+    ; No hay mayor ni menor
+    mov ah, 09h
+    mov dx, offset msg_report_no_max
+    int 21h
+
+    mov ah, 09h
+    mov dx, offset msg_report_no_min
+    int 21h
+
+    mov ah, 09h
+    mov dx, offset msg_newline
+    int 21h
+    jmp reporte_fin
+
+reporte_con_datos:
+    mov si, offset accounts
+
+    ; Inicializar mayor y menor con la primera cuenta
+    mov ax, [si + ID_OFFSET]
+    mov [report_max_id_low], ax
+    mov [report_min_id_low], ax
+
+    mov ax, [si + ID_OFFSET + 2]
+    mov [report_max_id_high], ax
+    mov [report_min_id_high], ax
+
+    mov ax, [si + BALANCE_OFFSET]
+    mov [report_max_balance_low], ax
+    mov [report_min_balance_low], ax
+
+    mov ax, [si + BALANCE_OFFSET + 2]
+    mov [report_max_balance_high], ax
+    mov [report_min_balance_high], ax
+
+    mov cx, [account_count]
+    mov si, offset accounts
+
+reporte_loop:
+    ; Contar activas e inactivas
+    cmp byte ptr [si + STATUS_OFFSET], ACTIVE
+    je cuenta_activa
+
+    inc word ptr [report_inactive_count]
+    jmp estado_listo
+
+cuenta_activa:
+    inc word ptr [report_active_count]
+
+estado_listo:
+    ; Cargar saldo actual en DX:AX
+    mov ax, [si + BALANCE_OFFSET]
+    mov dx, [si + BALANCE_OFFSET + 2]
+
+    ; Acumular saldo total
+    add word ptr [report_total_low], ax
+    adc word ptr [report_total_high], dx
+
+    ; Comparar con mayor saldo
+    mov bx, [report_max_balance_high]
+    cmp dx, bx
+    ja actualizar_max
+    jb revisar_min
+
+    mov bx, [report_max_balance_low]
+    cmp ax, bx
+    ja actualizar_max
+
+revisar_min:
+    ; Comparar con menor saldo
+    mov bx, [report_min_balance_high]
+    cmp dx, bx
+    jb actualizar_min
+    ja siguiente_cuenta
+
+    mov bx, [report_min_balance_low]
+    cmp ax, bx
+    jb actualizar_min
+    jmp siguiente_cuenta
+
+actualizar_max:
+    mov [report_max_balance_low], ax
+    mov [report_max_balance_high], dx
+
+    mov bx, [si + ID_OFFSET]
+    mov [report_max_id_low], bx
+    mov bx, [si + ID_OFFSET + 2]
+    mov [report_max_id_high], bx
+    jmp siguiente_cuenta
+
+actualizar_min:
+    mov [report_min_balance_low], ax
+    mov [report_min_balance_high], dx
+
+    mov bx, [si + ID_OFFSET]
+    mov [report_min_id_low], bx
+    mov bx, [si + ID_OFFSET + 2]
+    mov [report_min_id_high], bx
+
+siguiente_cuenta:
+    add si, account_size
+    loop reporte_loop
+
+    ; =========================
+    ; Imprimir resultados
+    ; =========================
+
+    ; Total de activas
+    mov ah, 09h
+    mov dx, offset msg_report_active
+    int 21h
+    xor dx, dx
+    mov ax, [report_active_count]
+    call imprimir_numero_id
+
+    ; Total de inactivas
+    mov ah, 09h
+    mov dx, offset msg_report_inactive
+    int 21h
+    xor dx, dx
+    mov ax, [report_inactive_count]
+    call imprimir_numero_id
+
+    ; Saldo total del banco
+    mov ah, 09h
+    mov dx, offset msg_report_total
+    int 21h
+    mov ax, [report_total_low]
+    mov dx, [report_total_high]
+    call imprimir_numero_saldo
+
+    ; Cuenta con mayor saldo
+    mov ah, 09h
+    mov dx, offset msg_report_max
+    int 21h
+    mov ax, [report_max_id_low]
+    mov dx, [report_max_id_high]
+    call imprimir_numero_id
+
+    mov ah, 09h
+    mov dx, offset msg_report_balance
+    int 21h
+    mov ax, [report_max_balance_low]
+    mov dx, [report_max_balance_high]
+    call imprimir_numero_saldo
+
+    ; Cuenta con menor saldo
+    mov ah, 09h
+    mov dx, offset msg_report_min
+    int 21h
+    mov ax, [report_min_id_low]
+    mov dx, [report_min_id_high]
+    call imprimir_numero_id
+
+    mov ah, 09h
+    mov dx, offset msg_report_balance
+    int 21h
+    mov ax, [report_min_balance_low]
+    mov dx, [report_min_balance_high]
+    call imprimir_numero_saldo
+
+    mov ah, 09h
+    mov dx, offset msg_newline
+    int 21h
+
+reporte_fin:
+    pop di
+    pop si
     pop dx
+    pop cx
+    pop bx
     pop ax
     ret
 procesar_mostrar_reporte endp
