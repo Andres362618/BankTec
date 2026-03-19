@@ -16,8 +16,8 @@
     STATUS_OFFSET equ 28 ; 1 byte (00=Activa, FF=Inactiva)
     
     ; Estados
-    ACTIVE equ 00h
-    INACTIVE equ 0FFh
+    ACTIVE equ 00h ; Cuenta activa
+    INACTIVE equ 0FFh ; Cuenta inactiva
     
     ; Mensajes
     ; Opciones del menú
@@ -99,49 +99,49 @@
 ; Nota: Permite edición básica (backspace) y limita a 16 caracteres
 ; ============================================================================
 
-leer_string proc
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    xor cx, cx
+leer_string proc ; DI = offset del buffer
+    push ax ; Guardar registros usados
+    push bx ; Guardar registros usados
+    push cx ; Guardar registros usados
+    push dx ; Guardar registros usados
+    push si ; Guardar registros usados
+    xor cx, cx ; Contador de caracteres ingresados
 
-read_loop:
-    mov ah, 01h
-    int 21h
+read_loop: ; Lee un carácter
+    mov ah, 01h ; INT 21h función 01 = leer carácter
+    int 21h ; Carácter leído en AL
 
-    cmp al, 13 
-    je read_done
-    cmp al, 8
+    cmp al, 13 ; Enter
+    je read_done  
+    cmp al, 8 ; Backspace
     je read_back
 
-    cmp cx, 19
-    jge read_loop
+    cmp cx, 19 ; Limite de 20 caracteres (0-19)
+    jge read_loop ; Si se excede el límite, ignora el carácter
 
-    mov [di], al
-    inc di
-    inc cx
-    jmp read_loop
+    mov [di], al ; Guarda el carácter en el buffer
+    inc di ; Mueve el puntero del buffer
+    inc cx ; Incrementa el contador de caracteres
+    jmp read_loop ; Continúa leyendo el siguiente carácter
 
-read_back:
-    cmp cx, 0
-    je read_loop
-    dec di
-    dec cx
-    jmp read_loop
+read_back: ; Maneja backspace
+    cmp cx, 0 ; Si no hay caracteres para borrar, ignora
+    je read_loop ; Si hay caracteres, borra el último
+    dec di ; Mueve el puntero del buffer hacia atrás
+    dec cx ; Decrementa el contador de caracteres
+    jmp read_loop ; Continúa leyendo el siguiente carácter
 
-read_done:
-    mov al, 0
-    mov [di], al
+read_done: ; Termina la cadena con un byte 0
+    mov al, 0 ; Carácter nulo para terminar la cadena
+    mov [di], al ; Termina la cadena
 
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    pop si ; Recuperar registros usados
+    pop dx ; Recuperar registros usados
+    pop cx ; Recuperar registros usados
+    pop bx ; Recuperar registros usados
+    pop ax ; Recuperar registros usados
     ret
-leer_string endp
+leer_string endp ; Fin de leer_string
 
 ; ============================================================================
 ; PROCEDIMIENTO: leer_numero_id
@@ -149,40 +149,37 @@ leer_string endp
 ; Nota: Convierte ASCII a número
 ; ============================================================================
 
-leer_numero_id proc
-    push bx
-    push cx
-    push di
-    push si
+leer_numero_id proc ; Salida: DX:AX = número leído
+    push bx ; Guardar registros usados
+    push cx ; Guardar registros usados
+    push di ; Guardar registros usados
+    push si ; Guardar registros usados
     
-    mov di, offset inputBuffer
-    call leer_string
+    mov di, offset inputBuffer ; Configura DI para apuntar al buffer de entrada
+    call leer_string ; Lee la cadena de entrada al buffer
+     
+    xor ax, ax ; Limpia AX para acumular el número
+    xor dx, dx ; Limpia DX para acumular la parte alta del número (si es necesario)
+    mov si, offset inputBuffer ; Configura SI para recorrer el buffer de entrada
     
-    xor ax, ax
-    xor dx, dx
-    mov si, offset inputBuffer
+convert_loop: ; Lee cada carácter y conviértelo a número
+    xor cx, cx ; Limpia CX para usarlo como registro temporal
+    mov cl, [si]  ; Lee el siguiente carácter del buffer
+    cmp cl, 0  ; Si es el final de la cadena, termina la conversión
+    je convert_done ; Si no es un dígito válido, error
     
-convert_loop:
-    xor cx, cx
-    mov cl, [si] 
-    cmp cl, 0 
-    je convert_done
-    
-    cmp cl, '0' 
-    jl convert_error
-    cmp cl, '9'
-    jg convert_error
+    cmp cl, '0' ; Verifica que el carácter sea un dígito
+    jl convert_error ; Si es menor que '0', error
+    cmp cl, '9' ; Verifica que el carácter sea un dígito
+    jg convert_error ; Si es mayor que '9', error
     
     sub cl, '0' ; Convierte ASCII a número
 
-
-    
-
     push ax ; Guardar parte baja del número antes de multiplicar
-    ; Multiplicar parte alta por 10
-    mov ax, dx
-    mov bx, 10
-    mul bx
+
+    mov ax, dx ; Multiplicar parte alta por 10
+    mov bx, 10 ; Multiplicador
+    mul bx ; AX = parte alta * 10, resultado en DX:AX
     mov dx, ax ; Parte alta = parte alta * 10
     pop ax ; Recuperar parte baja
     push dx ; Guardar parte alta antes de multiplicar parte baja
@@ -193,21 +190,21 @@ convert_loop:
 
     jc convert_error ; Si hay overflow, error
     
-    inc si
-    jmp convert_loop
+    inc si ; Avanza al siguiente carácter
+    jmp convert_loop ; Continúa el ciclo para el siguiente carácter
     
-convert_error:
-    mov ax, 0 ; Retorna 0 si error
-    mov dx, 0
-    jmp convert_done
+convert_error: ; Si hay un error de conversión, retorna 0
+    mov ax, 0 ; Retorna 0
+    mov dx, 0 ; Retorna 0
+    jmp convert_done ; Salta a la limpieza y retorno
     
-convert_done:
-    pop si
-    pop di
-    pop cx
-    pop bx
+convert_done: ; Limpia la pila y retorna con el número en DX:AX
+    pop si ; Recuperar registros usados
+    pop di ; Recuperar registros usados
+    pop cx ; Recuperar registros usados
+    pop bx ; Recuperar registros usados
     ret
-leer_numero_id endp
+leer_numero_id endp ; Fin de leer_numero_id
 
 ; ============================================================================
 ; PROCEDIMIENTO: leer_numero_saldo
@@ -215,40 +212,39 @@ leer_numero_id endp
 ; Nota: Convierte ASCII a número
 ; ============================================================================
 
-leer_numero_saldo proc
-    push bx
-    push cx
-    push di
-    push si
+leer_numero_saldo proc ; Salida: DX:AX = número leído
+    push bx ; Guardar registros usados
+    push cx ; Guardar registros usados
+    push di ; Guardar registros usados
+    push si ; Guardar registros usados
     
-    mov di, offset inputBuffer
-    call leer_string
+    mov di, offset inputBuffer ; Configura DI para apuntar al buffer de entrada
+    call leer_string ; Lee la cadena de entrada al buffer
     
-    xor ax, ax
-    xor dx, dx
-    mov si, offset inputBuffer
+    xor ax, ax ; Limpia AX para acumular la parte baja del número
+    xor dx, dx ; Limpia DX para acumular la parte alta del número (si es necesario)
+    mov si, offset inputBuffer ; Configura SI para recorrer el buffer de entrada
     
-convert_loop_saldo:
-    xor cx, cx
-    mov cl, [si] 
-    cmp cl, 0 
-    je convert_decimal
+convert_loop_saldo: ; Lee cada carácter y conviértelo a número, manejando el punto decimal
+    xor cx, cx ; Limpia CX para usarlo como registro temporal
+    mov cl, [si] ; Lee el siguiente carácter del buffer
+    cmp cl, 0 ; Si es el final de la cadena, termina la conversión
+    je convert_decimal ; Si no es un dígito válido o un punto decimal, error
     
-    cmp cl, '.'
-    je skip_decimal_point
-    cmp cl, '0' 
-    jl convert_error_saldo
-    cmp cl, '9'
-    jg convert_error_saldo
+    cmp cl, '.' ; Verifica si es el punto decimal
+    je skip_decimal_point ; Si es un punto decimal, salta a la parte decimal
+    cmp cl, '0'  ; Verifica que el carácter sea un dígito
+    jl convert_error_saldo ; Si es menor que '0', error
+    cmp cl, '9' ; Verifica que el carácter sea un dígito
+    jg convert_error_saldo ; Si es mayor que '9', error
     
 
     sub cl, '0' ; Convierte ASCII a número    
 
     push ax ; Guardar parte baja del número antes de multiplicar
-    ; Multiplicar parte alta por 10
-    mov ax, dx
-    mov bx, 10
-    mul bx
+    mov ax, dx ; Multiplicar parte alta por 10
+    mov bx, 10 ; Multiplicador
+    mul bx ; AX = parte alta * 10, resultado en DX:AX
     mov dx, ax ; Parte alta = parte alta * 10
     pop ax ; Recuperar parte baja
     push dx ; Guardar parte alta antes de multiplicar parte baja
@@ -259,37 +255,38 @@ convert_loop_saldo:
 
     jc convert_error_saldo ; Si hay overflow, error
     
-    inc si
-    jmp convert_loop_saldo
+    inc si ; Avanza al siguiente carácter
+    jmp convert_loop_saldo ; Continúa el ciclo para el siguiente carácter
 
-skip_decimal_point:
+skip_decimal_point: ; Si es un punto decimal, salta a la parte decimal
     inc si ; Saltar el punto decimal
-convert_decimal:
+
+convert_decimal: ; Si se encuentra un punto decimal, ahora se procesan los dígitos decimales
     ; Leer parte decimal (hasta 4 dígitos)
-    xor cx, cx
+    xor cx, cx ; Limpia CX para usarlo como contador de dígitos decimales
     mov cx, 0 ; Contador de dígitos decimales
-decimal_loop:
+
+decimal_loop: ; Lee cada dígito decimal y conviértelo a número
     push cx ; Guardar contador de decimales
-    xor cx, cx
-    mov cl, [si] 
-    cmp cl, 0 
-    jne not_end_of_decimal
+    xor cx, cx ; Limpia CX para usarlo como registro temporal
+    mov cl, [si]  ; Lee el siguiente carácter del buffer
+    cmp cl, 0 ; Si es el final de la cadena, tratamos como '0' para los decimales faltantes
+    jne not_end_of_decimal ; Si no es el final de la cadena, verifica que sea un dígito válido
     mov cl, '0' ; Si es el final de la cadena, tratamos como '0' para los decimales faltantes
     dec si ; No avanzamos el puntero para que el próximo ciclo vuelva a leer el mismo byte (que es 0)
     
-not_end_of_decimal:
-    cmp cl, '0' 
-    jl convert_error_saldo_decimal
-    cmp cl, '9'
-    jg convert_error_saldo_decimal
+not_end_of_decimal: ; Verifica que el carácter sea un dígito
+    cmp cl, '0' ; Verifica que el carácter sea un dígito
+    jl convert_error_saldo_decimal ; Si es menor que '0', error
+    cmp cl, '9' ; Verifica que el carácter sea un dígito
+    jg convert_error_saldo_decimal ; Si es mayor que '9', error
     
     sub cl, '0' ; Convierte ASCII a número
 
     push ax ; Guardar parte baja del número antes de multiplicar
-    ; Multiplicar parte alta por 10
-    mov ax, dx
-    mov bx, 10
-    mul bx
+    mov ax, dx ; Multiplicar parte alta por 10
+    mov bx, 10 ; Multiplicador
+    mul bx ; AX = parte alta * 10, resultado en DX:AX
     mov dx, ax ; Parte alta = parte alta * 10
     pop ax ; Recuperar parte baja
     push dx ; Guardar parte alta antes de multiplicar parte baja
@@ -301,28 +298,26 @@ not_end_of_decimal:
     jc convert_error_saldo_decimal ; Si hay carry, error
     
     pop cx ; Recuperar contador de decimales
-    inc cx
-    inc si
+    inc cx ; Incrementa contador de dígitos decimales
+    inc si ; Avanza al siguiente carácter
     cmp cx, 4 ; Solo permitimos hasta 4 dígitos decimales
-    jl decimal_loop
-    jmp convert_done_saldo
+    jl decimal_loop ; Continúa el ciclo para el siguiente dígito decimal
+    jmp convert_done_saldo ; Si se ingresan más de 4 dígitos decimales, ignoramos el resto
 
-convert_error_saldo_decimal:
+convert_error_saldo_decimal: ; Si hay un error de conversión en la parte decimal, retorna 0
     pop ax ; Limpiar contador de decimales de la pila
-convert_error_saldo:
+convert_error_saldo: ; Si hay un error de conversión, retorna 0
     mov ax, 0 ; Retorna 0 si error
-    mov dx, 0
-    jmp convert_done_saldo
+    mov dx, 0 ; Retorna 0 si error
+    jmp convert_done_saldo ; Salta a la limpieza y retorno
     
-convert_done_saldo:
-    pop si
-    pop di
-    pop cx
-    pop bx
+convert_done_saldo: ; Limpia la pila y retorna con el número en DX:AX
+    pop si ; Recuperar registros usados
+    pop di ; Recuperar registros usados
+    pop cx ; Recuperar registros usados
+    pop bx ; Recuperar registros usados
     ret
-leer_numero_saldo endp
-
-
+leer_numero_saldo endp ; Fin de leer_numero_saldo
 
 ; ============================================================================
 ; PROCEDIMIENTO: imprimir_numero_id
@@ -330,55 +325,54 @@ leer_numero_saldo endp
 ; Nota: Convierte número a ASCII
 ; ============================================================================
 
-imprimir_numero_id proc
-    push ax
-    push bx
-    push cx
-    push dx
+imprimir_numero_id proc ; Entrada: DX:AX = número a imprimir
+    push ax ; Guardar registros usados
+    push bx ; Guardar registros usados
+    push cx ; Guardar registros usados
+    push dx ;
     
-    
-    mov cx, 0
+    mov cx, 0 ; Contador de dígitos impresos
     
 divide_loop:
     push dx ; Guarda parte alta antes de dividir
-    mov bx, 10
+    mov bx, 10 ; Divisor para obtener el dígito menos significativo
     div bx ; Parte baja = parte baja / 10, residuo en DX
     pop bx ; Recupera parte alta
     push dx ; Guarda residuo
     push ax ; Guarda parte baja antes de dividir
     mov ax, bx ; Carga parte alta en AX para parte alta / 10
-    mov bx, 10
+    mov bx, 10 ; Divisor para obtener el siguiente dígito
     xor dx, dx ; Limpia DX antes de dividir
-    div bx 
+    div bx ; Parte alta = parte alta / 10, residuo en DX
     push ax ; Guarda parte alta después de dividir
     mov ax, dx ; Carga residuo en AX para convertir a dígito
-    mov bx, 010000d
+    mov bx, 010000d ; Multiplicador para reconstruir el número original
     mul bx ; Multiplica el dígito por 10 para sumarlo a la parte alta
     pop bx ; Recupera parte alta después de multiplicar el dígito
     pop ax ; Recupera parte baja original
     add ax, dx ; Suma el residuo para obtener el dígito actual
     mov dx, bx ; Actualiza parte alta con el resultado de la división
 
-    inc cx
-    cmp dx, 0
-    jne divide_loop
-    cmp ax, 0
-    jne divide_loop
+    inc cx ; Incrementa el contador de dígitos impresos
+    cmp dx, 0 ; Si la parte alta aún tiene dígitos, continúa dividiendo
+    jne divide_loop ; Si la parte alta es 0, verifica si la parte baja aún tiene dígitos
+    cmp ax, 0 ; Si la parte baja aún tiene dígitos, continúa dividiendo
+    jne divide_loop ; Si ambos son 0, termina la división
     
-print_loop:
-    pop ax
+print_loop: ; Imprime los dígitos en orden inverso (del último al primero)
+    pop ax ; Recupera el dígito actual
     add al, '0' ; Convierte a ASCII
-    mov dl, al
+    mov dl, al ; Prepara el dígito para imprimir
     mov ah, 02h ; INT 21h función 02 = imprimir carácter
-    int 21h
-    loop print_loop
+    int 21h ; Imprime el dígito
+    loop print_loop ; Repite hasta que se hayan impreso todos los dígitos
     
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    pop dx ; Recuperar registros usados
+    pop cx ; Recuperar registros usados
+    pop bx ; Recuperar registros usados
+    pop ax ; Recuperar registros usados
     ret
-imprimir_numero_id endp
+imprimir_numero_id endp ; Fin de imprimir_numero_id
 
 ; ============================================================================
 ; PROCEDIMIENTO: imprimir_numero_saldo
@@ -386,12 +380,12 @@ imprimir_numero_id endp
 ; Nota: Convierte número a ASCII
 ; ============================================================================
 
-imprimir_numero_saldo proc
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+imprimir_numero_saldo proc ; Entrada: DX:AX = número a imprimir con formato decimal (4 dígitos decimales)
+    push ax ; Guardar registros usados
+    push bx ; Guardar registros usados
+    push cx ; Guardar registros usados
+    push dx ; Guardar registros usados
+    push si ; Guardar registros usados
     
     
     xor si, si ; Contador de digitos apilados
@@ -399,8 +393,8 @@ imprimir_numero_saldo proc
 divide_loop_saldo:
     push ax ; Guardar parte baja original
     mov ax, dx ; Dividir parte alta entre 10
-    xor dx, dx
-    mov bx, 10
+    xor dx, dx ; Limpia DX antes de dividir
+    mov bx, 10 ; Divisor para obtener el dígito menos significativo
     div bx ; AX = cociente alto, DX = residuo alto
     mov cx, ax ; Guardar nuevo high word
     pop ax ; Recuperar parte baja original
@@ -408,46 +402,44 @@ divide_loop_saldo:
     push dx ; Guardar digito (residuo final)
     mov dx, cx ; Actualizar high word del cociente
 
-    inc si
-    cmp dx, 0
-    jne divide_loop_saldo
-    cmp ax, 0
-    jne divide_loop_saldo
+    inc si ; Incrementa el contador de dígitos apilados
+    cmp dx, 0 ; Si la parte alta aún tiene dígitos, continúa dividiendo
+    jne divide_loop_saldo ; Si la parte alta es 0, verifica si la parte baja aún tiene dígitos
+    cmp ax, 0 ; Si la parte baja aún tiene dígitos, continúa dividiendo
+    jne divide_loop_saldo ; Si ambos son 0, termina la división
     
-padding_loop:
+padding_loop: ; Imprime ceros a la izquierda si es necesario para asegurar formato decimal
     cmp si, 5 ; Asegura que siempre haya 1 entero + 4 decimales
-    jge print_loop_saldo
-    mov ax, 0
+    jge print_loop_saldo ; Si ya hay suficientes dígitos, comienza a imprimir
+    mov ax, 0 ; Rellenar con ceros a la izquierda
     push ax ; Rellenar con ceros a la izquierda
-    inc si
+    inc si ; Incrementa el contador de dígitos apilados
     
-    jmp padding_loop
+    jmp padding_loop ; Continúa el ciclo de padding hasta tener suficientes dígitos
 
-print_loop_saldo:
+print_loop_saldo: ; Imprime los dígitos en orden inverso (del último al primero)
     cmp si, 4 ; Imprimir punto decimal antes de 4 digitos finales
-    jne print_digit
-    mov dl, '.'
+    jne print_digit ; Si no es el momento de imprimir el punto decimal, imprime el dígito
+    mov dl, '.' ; Imprime el punto decimal
     mov ah, 02h ; INT 21h función 02 = imprimir carácter
-    int 21h
+    int 21h ; Imprime el punto decimal
 
-print_digit:
-    pop ax
+print_digit: ; Imprime el dígito actual
+    pop ax ; Recupera el dígito actual
     add al, '0' ; Convierte a ASCII
-    mov dl, al
+    mov dl, al ; Prepara el dígito para imprimir
     mov ah, 02h ; INT 21h función 02 = imprimir carácter
-    int 21h
-    dec si
-    jnz print_loop_saldo
+    int 21h ; Imprime el dígito
+    dec si ; Decrementa el contador de dígitos apilados
+    jnz print_loop_saldo ; Repite hasta que se hayan impreso todos los dígitos
     
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-imprimir_numero_saldo endp
-
-
+    pop si ; Recuperar registros usados
+    pop dx ; Recuperar registros usados
+    pop cx ; Recuperar registros usados
+    pop bx ; Recuperar registros usados
+    pop ax ; Recuperar registros usados
+    ret 
+imprimir_numero_saldo endp ; Fin de imprimir_numero_saldo
 
 ; ============================================================================
 ; PROCEDIMIENTO: buscar_cuenta
@@ -455,44 +447,44 @@ imprimir_numero_saldo endp
 ; Salida: SI = offset de la cuenta en memoria, CF = 0 si encontrado
 ; ============================================================================
 
-buscar_cuenta proc
-    push ax
-    push bx
-    push cx
-    push dx
+buscar_cuenta proc ; Entrada: DX:AX = ID de cuenta
+    push ax ; Guardar registros usados
+    push bx ; Guardar registros usados
+    push cx ; Guardar registros usados
+    push dx ; Guardar registros usados
 
-    mov si, offset accounts
+    mov si, offset accounts ; Configura SI para recorrer el arreglo de cuentas
     xor cx, cx ; contador de cuentas
 
-search_loop:
-    cmp cx, [account_count]
-    jge search_not_found
+search_loop: ; Recorre las cuentas buscando el ID
+    cmp cx, [account_count] ; Si se han revisado todas las cuentas, termina la búsqueda
+    jge search_not_found ; Si no se ha encontrado el ID, CF = 1
 
-    mov bx, [si + ID_OFFSET]
-    cmp bx, ax
-    jne next_entry
-    mov bx, [si + ID_OFFSET + 2]   
-    cmp bx, dx
-    jne next_entry
+    mov bx, [si + ID_OFFSET] ; Carga parte baja del ID de la cuenta actual
+    cmp bx, ax ; Compara con parte baja del ID buscado
+    jne next_entry ; Si no coincide, pasa a la siguiente cuenta
+    mov bx, [si + ID_OFFSET + 2] ; Carga parte alta del ID de la cuenta actual
+    cmp bx, dx ; Compara con parte alta del ID buscado
+    jne next_entry ; Si no coincide, pasa a la siguiente cuenta
 
-    clc
-    jmp search_end
+    clc ; Si se encuentra el ID, CF = 0 y SI ya apunta a la cuenta
+    jmp search_end ; Termina la búsqueda
 
-next_entry:
-    add si, account_size
-    inc cx
-    jmp search_loop
+next_entry: ; Si no coincide, pasa a la siguiente cuenta
+    add si, account_size ; Mueve SI al siguiente registro de cuenta
+    inc cx ; Incrementa el contador de cuentas
+    jmp search_loop ; Continúa buscando
 
-search_not_found:
+search_not_found: ; Si no se encuentra el ID, CF = 1
     stc
 
-search_end:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+search_end: ; Limpia la pila y retorna con SI apuntando a la cuenta (si encontrada) o sin cambios (si no encontrada)
+    pop dx ; Recuperar registros usados
+    pop cx ; Recuperar registros usados
+    pop bx ; Recuperar registros usados
+    pop ax ; Recuperar registros usados
     ret
-buscar_cuenta endp
+buscar_cuenta endp ; Fin de buscar_cuenta
 
 ; ============================================================================
 ; PROCEDIMIENTO: validar_id_unico
@@ -500,48 +492,47 @@ buscar_cuenta endp
 ; Salida: CF = 0 si único (OK), CF = 1 si duplicado
 ; ============================================================================
 
-validar_id_unico proc
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+validar_id_unico proc ; Entrada: DX:AX = ID a validar
+    push ax ; Guardar registros usados
+    push bx ; Guardar registros usados
+    push cx ; Guardar registros usados
+    push dx ; Guardar registros usados
+    push si ; Guardar registros usados
 
-    mov si, offset accounts
-    xor cx, cx          ; contador de cuentas
-    ; DX debe contener la parte alta del ID (0 si ID <= 0xFFFF)
+    mov si, offset accounts ; Configura SI para recorrer el arreglo de cuentas
+    xor cx, cx ; contador de cuentas
 
-check_loop:
-    cmp cx, [account_count]
-    jge check_unique
+check_loop: ; Recorre las cuentas buscando el ID
+    cmp cx, [account_count] ; Si se han revisado todas las cuentas, el ID es único
+    jge check_unique ; Si no se ha encontrado el ID, CF = 0
 
-    mov bx, [si + ID_OFFSET]        ; low word
-    cmp bx, ax
-    jne next_check
-    mov bx, [si + ID_OFFSET + 2]    ; high word
-    cmp bx, dx
-    jne next_check
+    mov bx, [si + ID_OFFSET] ; Carga parte baja del ID de la cuenta actual
+    cmp bx, ax ; Compara con parte baja del ID a validar
+    jne next_check ; Si no coincide, pasa a la siguiente cuenta
+    mov bx, [si + ID_OFFSET + 2] ; Carga parte alta del ID de la cuenta actual
+    cmp bx, dx ; Compara con parte alta del ID a validar
+    jne next_check ; Si no coincide, pasa a la siguiente cuenta
 
     ; Duplicado
-    stc
-    jmp check_end
+    stc ; Si se encuentra el ID, CF = 1
+    jmp check_end ; Termina la validación
 
-next_check:
-    add si, account_size
-    inc cx
-    jmp check_loop
+next_check: ; Si no coincide, pasa a la siguiente cuenta
+    add si, account_size ; Mueve SI al siguiente registro de cuenta
+    inc cx ; Incrementa el contador de cuentas
+    jmp check_loop; Continúa buscando
 
-check_unique:
-    clc
+check_unique: ; Si se revisaron todas las cuentas y no se encontró el ID, es único
+    clc ; CF = 0
 
-check_end:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+check_end: ; Limpia la pila y retorna con CF indicando si el ID es único o no
+    pop si ; Recuperar registros usados
+    pop dx ; Recuperar registros usados
+    pop cx ; Recuperar registros usados
+    pop bx ; Recuperar registros usados
+    pop ax ; Recuperar registros usados
     ret
-validar_id_unico endp
+validar_id_unico endp ; Fin de validar_id_unico
 
 ; ============================================================================
 ; PROCEDIMIENTO: crear_cuenta
@@ -549,12 +540,12 @@ validar_id_unico endp
 ; Salida: CF = 0 si éxito, CF = 1 si error, AX = código de error (1=max cuentas, 2=ID duplicado, 3=saldo negativo)
 ; ============================================================================
 
-crear_cuenta proc
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+crear_cuenta proc ; Entrada: BX:AX = ID, DI = buffer nombre, DX:CX = saldo
+    push bx ; Guardar parte alta del ID
+    push cx ; Guardar parte baja del saldo
+    push dx ; Guardar parte alta del saldo
+    push si ; Guardar registros usados
+    push di ; Guardar registros usados
     
     ; Guardar saldo en la pila
     push dx ; Guardar parte alta del saldo
@@ -566,119 +557,118 @@ crear_cuenta proc
     push ax ; Guardar parte baja del ID
 
     ; Validación 1: Número máximo de cuentas
-    mov bx, [account_count]
-    cmp bx, max_accounts
-    jge crear_error_max
+    mov bx, [account_count] ; Carga el número actual de cuentas
+    cmp bx, max_accounts ; Compara con el máximo permitido
+    jge crear_error_max ; Si se ha alcanzado el máximo, CF = 1 y código de error 1
     
     ; Validación 2: ID no es cero
-    cmp ax, 0
-    jne continue_validations
-    cmp dx, 0
-    je crear_error_id
+    cmp ax, 0 ; Compara parte baja del ID con 0
+    jne continue_validations ; Si parte baja no es 0, continúa con la siguiente validación
+    cmp dx, 0 ; Compara parte alta del ID con 0
+    je crear_error_id ; Si ambas partes del ID son 0, es inválido, CF = 1 y código de error 2
 
-continue_validations:
+continue_validations: ; Si el ID no es cero, continúa con la siguiente validación
+
     ; Validación 3: ID no repetido
-    call validar_id_unico
-    jc crear_error_id
-
-    
+    call validar_id_unico ; Si el ID no es único, CF = 1 y código de error 2
+    jc crear_error_id ; Si el ID es único, continúa con la siguiente validación 
 
     ; Calcular offset en memoria
-    mov si, offset accounts
-    mov bx, [account_count]
-    mov ax, bx
-    mov bx, account_size
-    mul bx
-    add si, ax
+    mov si, offset accounts ; Configura SI para apuntar al inicio del arreglo de cuentas
+    mov bx, [account_count] ; Carga el número actual de cuentas
+    mov ax, bx ; Multiplica el número de cuentas por el tamaño de cada cuenta para obtener el offset
+    mov bx, account_size ; Tamaño de cada cuenta
+    mul bx ; AX = offset en bytes para la nueva cuenta
+    add si, ax ; SI ahora apunta al lugar donde se debe crear la nueva cuenta
 
     ; Recuperar el ID original
     pop dx ; Parte baja del ID
-    mov [si + ID_OFFSET], dx
+    mov [si + ID_OFFSET], dx ; Guardar parte baja del ID en la cuenta
     pop dx ; Parte alta del ID
-    mov [si + ID_OFFSET + 2], dx
+    mov [si + ID_OFFSET + 2], dx ; Guardar parte alta del ID en la cuenta
 
-    mov bx, di
-    mov di, si
-    add di, NAME_OFFSET
-    xor dx, dx ;
+    mov bx, di ; BX apunta al buffer del nombre ingresado
+    mov di, si ; DI apunta al inicio de la cuenta en memoria
+    add di, NAME_OFFSET ; Mueve DI al offset del nombre dentro de la cuenta
+    xor dx, dx ; Contador de caracteres copiados para el nombre
 
-copy_name_loop:
-    mov al, [bx]
-    cmp al, 0
-    je copy_done
-    cmp dx, 20
-    jge copy_done
+copy_name_loop: ; Copia el nombre del buffer a la cuenta, asegurando no exceder 20 caracteres
+    mov al, [bx] ; Lee el siguiente carácter del nombre
+    cmp al, 0 ; Si es el final de la cadena, termina de copiar
+    je copy_done ; Si no es el final de la cadena, verifica que no se exceda el límite de 20 caracteres
+    cmp dx, 20 ; Verifica que no se exceda el límite de 20 caracteres para el nombre
+    jge copy_done ; Si se excede el límite, termina de copiar
 
-    mov [di], al
-    inc bx
-    inc di
-    inc dx
-    jmp copy_name_loop
+    mov [di], al ; Copia el carácter al campo de nombre de la cuenta
+    inc bx ; Avanza al siguiente carácter del nombre
+    inc di ; Avanza al siguiente byte en el campo de nombre de la cuenta
+    inc dx ; Incrementa el contador de caracteres copiados
+    jmp copy_name_loop ; Continúa copiando el siguiente carácter del nombre
 
 copy_done:
     ; Rellenar espacios (si es necesario)
-    cmp dx, 20
-    jge skip_spaces
+    cmp dx, 20 ; Verifica si se copiaron menos de 20 caracteres para el nombre
+    jge skip_spaces ; Si ya se copiaron 20 caracteres, no es necesario rellenar espacios
 
-fill_spaces:
-    mov al, ' '
-    mov [di], al
-    inc di
-    inc dx
-    cmp dx, 20
-    jl fill_spaces
+fill_spaces: ; Rellena con espacios el resto del campo de nombre si se copiaron menos de 20 caracteres
+    mov al, ' ' ; Carácter de espacio para rellenar
+    mov [di], al ; Rellena el byte actual con un espacio
+    inc di ; Avanza al siguiente byte en el campo de nombre de la cuenta
+    inc dx ; Incrementa el contador de caracteres copiados
+    cmp dx, 20 ; Verifica si se han rellenado 20 caracteres en total
+    jl fill_spaces ; Si no se han rellenado 20 caracteres, continúa rellenando
 
-skip_spaces:
+skip_spaces: ; Si ya se copiaron 20 caracteres, salta el ciclo de relleno de espacios
     pop cx ; Recuperar parte baja del saldo
     pop dx ; Recuperar parte alta del saldo
-    mov [si + BALANCE_OFFSET], cx
-    mov [si + BALANCE_OFFSET + 2], dx
+    mov [si + BALANCE_OFFSET], cx ; Guardar parte baja del saldo en la cuenta
+    mov [si + BALANCE_OFFSET + 2], dx ; Guardar parte alta del saldo en la cuenta
     
-    mov al, ACTIVE
-    mov [si + STATUS_OFFSET], al
+    mov al, ACTIVE ; Establecer estado de la cuenta como activa
+    mov [si + STATUS_OFFSET], al ; Guardar estado en la cuenta
     
-    inc [account_count]
+    inc [account_count] ; Incrementar el contador de cuentas
     
     clc 
-    jmp crear_end
+    jmp crear_end ; Cuenta creada exitosamente, CF = 0
     
 crear_error_max:
     pop ax ; Limpiar parte baja del ID de la pila
     pop ax ; Limpiar parte alta del ID de la pila
     pop ax ; Limpiar parte baja del saldo de la pila
     pop ax ; Limpiar parte alta del saldo de la pila
-    xor ax, ax
-    mov al, 1
+    xor ax, ax ; Limpiar AX para retornar solo el código de error
+    mov al, 1 ; código de error: número máximo de cuentas alcanzado
     stc
-    jmp crear_end
+    jmp crear_end ; Termina el procedimiento con error
     
 crear_error_id:
     pop ax ; Limpiar parte baja del ID de la pila
     pop ax ; Limpiar parte alta del ID de la pila
     pop ax ; Limpiar parte baja del saldo de la pila
     pop ax ; Limpiar parte alta del saldo de la pila    
-    xor ax, ax
+    xor ax, ax ; Limpiar AX para retornar solo el código de error
     mov al, 2 ; código de error: ID duplicado
     stc
-    jmp crear_end
+    jmp crear_end ; Termina el procedimiento con error
     
 crear_error_balance:
     pop ax ; Limpiar parte baja del ID de la pila
     pop ax ; Limpiar parte alta del ID de la pila
     pop ax ; Limpiar parte baja del saldo de la pila
     pop ax ; Limpiar parte alta del saldo de la pila
-    xor ax, ax
+    xor ax, ax ; Limpiar AX para retornar solo el código de error
     mov al, 3 ; código de error: saldo negativo
     stc
 
-crear_end:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
+crear_end: ; Limpia la pila y retorna con CF indicando éxito o error y AX con el código de error si hubo uno
+    pop di ; Recuperar registros usados
+    pop si ; Recuperar registros usados
+    pop dx ; Recuperar registros usados
+    pop cx ; Recuperar registros usados
+    pop bx ; Recuperar registros usados
     ret
-crear_cuenta endp
+crear_cuenta endp ; Fin de crear_cuenta
 
 ; ============================================================================
 ; PROCEDIMIENTO: consultar_saldo
@@ -686,29 +676,29 @@ crear_cuenta endp
 ; Salida: DX:AX = saldo, CF = 0 si encontrado
 ; ============================================================================
 
-consultar_saldo proc
-    push bx
-    push cx
-    push si
+consultar_saldo proc ; Entrada: DX:AX = ID de cuenta a buscar
+    push bx ; Guardar registros usados
+    push cx ; Guardar registros usados
+    push si ; Guardar registros usados
     
-    call buscar_cuenta 
-    jc consultar_error
+    call buscar_cuenta ; Busca la cuenta por ID, SI apunta a la cuenta si se encuentra, CF = 0 si encontrado
+    jc consultar_error ; Si no se encuentra la cuenta, CF = 1 y salta a error
     
     ; Si encontrado, SI ya apunta a la cuenta
-    mov ax, [si + BALANCE_OFFSET]
-    mov dx, [si + BALANCE_OFFSET + 2]
-    clc
-    jmp consultar_end
+    mov ax, [si + BALANCE_OFFSET] ; Carga parte baja del saldo
+    mov dx, [si + BALANCE_OFFSET + 2] ; Carga parte alta del saldo
+    clc ; CF = 0 para indicar que se encontró la cuenta
+    jmp consultar_end ; Termina el procedimiento con éxito
     
-consultar_error:
+consultar_error: ; Si no se encuentra la cuenta, CF = 1
     stc
     
-consultar_end:
-    pop si
-    pop cx
-    pop bx
+consultar_end: ; Limpia la pila y retorna con DX:AX = saldo (si encontrado) o sin cambios (si no encontrado) y CF indicando el resultado
+    pop si ; Recuperar registros usados
+    pop cx ; Recuperar registros usados
+    pop bx ; Recuperar registros usados
     ret
-consultar_saldo endp
+consultar_saldo endp ; Fin de consultar_saldo
 
 ; ============================================================================
 ; PROCEDIMIENTO: procesar_crear_cuenta
@@ -718,105 +708,101 @@ consultar_saldo endp
 ; ============================================================================
 
 procesar_crear_cuenta proc
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    push ax ; Guardar registros usados
+    push bx ; Guardar registros usados
+    push cx ; Guardar registros usados
+    push dx ; Guardar registros usados
+    push si ; Guardar registros usados 
+    push di ; Guardar registros usados
 
     ; Verificar límite de cuentas
-    mov bx, [account_count]
-    cmp bx, max_accounts
-    jl crear_proseguir
+    mov bx, [account_count] ; Carga el número actual de cuentas
+    cmp bx, max_accounts ; Compara con el máximo permitido
+    jl crear_proseguir ; Si no se ha alcanzado el máximo, continúa con el proceso de creación
 
-    mov ah, 09h
-    mov dx, offset msg_error_max
-    int 21h
-    jmp crear_fin
+    mov ah, 09h ; Imprimir mensaje de error por límite de cuentas alcanzado
+    mov dx, offset msg_error_max ; Mensaje de error por límite de cuentas alcanzado
+    int 21h ; Imprime el mensaje de error
+    jmp crear_fin ; Termina el procedimiento
 
-crear_proseguir:
+crear_proseguir: ; Si no se ha alcanzado el máximo, continúa con el proceso de creación
 
     ; Imprimir "Nombre: "
-    mov ah, 09h 
-    mov dx, offset msg_name
-    int 21h
+    mov ah, 09h  ; Función 09h de INT 21h = imprimir cadena
+    mov dx, offset msg_name ; Mensaje "Nombre: "
+    int 21h ; Imprime el mensaje para solicitar el nombre
     
     ; Leer nombre
-    mov di, offset nameBuffer
-    call leer_string
+    mov di, offset nameBuffer ; Configura DI para apuntar al buffer de nombre
+    call leer_string ; Lee el nombre ingresado por el usuario al buffer
     
     ; Imprimir "ID: "
-    mov ah, 09h
-    mov dx, offset msg_id
-    int 21h
+    mov ah, 09h ; Función 09h de INT 21h = imprimir cadena
+    mov dx, offset msg_id ; Mensaje "ID: "
+    int 21h ; Imprime el mensaje para solicitar el ID
     
     ; Leer ID
-    call leer_numero_id
-    push ax
+    call leer_numero_id ; Lee el ID ingresado por el usuario, resultado en DX:AX
+    push ax ; Guardar parte baja del ID para validación posterior
     push dx ; Guardar ID para validación posterior
-
-
     
     ; Imprimir "Saldo: "
-    mov ah, 09h
-    mov dx, offset msg_balance
-    int 21h
+    mov ah, 09h ; Función 09h de INT 21h = imprimir cadena
+    mov dx, offset msg_balance ; Mensaje "Saldo: "
+    int 21h ; Imprime el mensaje para solicitar el saldo
     
     ; Leer saldo
-    call leer_numero_saldo
+    call leer_numero_saldo ; Lee el saldo ingresado por el usuario, resultado en DX:AX
     mov cx, ax ; Guardar saldo en DX:CX
     
     ; Llamar crear_cuenta con validaciones
     pop bx ; Recuperar parte alta del ID para crear_cuenta
     pop ax ; Recuperar parte baja del ID para crear_cuenta
-    mov di, offset nameBuffer
-    call crear_cuenta
-    jc crear_fallido
+    mov di, offset nameBuffer ; DI apunta al buffer del nombre para crear_cuenta
+    call crear_cuenta ; Crea la cuenta con ID en BX:AX, nombre en DI, saldo en DX:CX, resultado en CF y AX con código de error si hubo uno
+    jc crear_fallido ; Si hubo un error en la creación de la cuenta, CF = 1 y AX tiene el código de error
     
     ; Éxito: imprimir mensaje
-    mov ah, 09h
-    mov dx, offset msg_success
-    int 21h
-    jmp crear_fin
+    mov ah, 09h ; Función 09h de INT 21h = imprimir cadena
+    mov dx, offset msg_success ; Mensaje de éxito al crear la cuenta
+    int 21h ; Imprime el mensaje de éxito
+    jmp crear_fin ; Termina el procedimiento
     
 crear_fallido:
     ; Determinar cuál fue el error
-    cmp al, 1
-    je mostrar_error_max
-    cmp al, 3
-    je mostrar_error_balance
-    ; por defecto: ID duplicado
+    cmp al, 1 ; Código de error 1 = número máximo de cuentas alcanzado
+    je mostrar_error_max ; Si el error fue por límite de cuentas, muestra el mensaje correspondiente
+    cmp al, 3 ; Código de error 3 = saldo negativo
+    je mostrar_error_balance ; Si el error fue por saldo negativo, muestra el mensaje correspondiente
 
-mostrar_error_id:
-    mov ah, 09h
-    mov dx, offset msg_error_id
-    int 21h
-    jmp fin_error
+mostrar_error_id: ; Código de error 2 = ID duplicado o inválido
+    mov ah, 09h ; Función 09h de INT 21h = imprimir cadena
+    mov dx, offset msg_error_id ; Mensaje de error por ID duplicado o inválido
+    int 21h ; Imprime el mensaje de error por ID
+    jmp fin_error ; Termina el procedimiento después de mostrar el error
 
-mostrar_error_max:
-    mov ah, 09h
-    mov dx, offset msg_error_max
-    int 21h
-    jmp fin_error
+mostrar_error_max: ; Código de error 1 = número máximo de cuentas alcanzado
+    mov ah, 09h ; Función 09h de INT 21h = imprimir cadena
+    mov dx, offset msg_error_max ; Mensaje de error por límite de cuentas alcanzado
+    int 21h ; Imprime el mensaje de error por límite de cuentas
+    jmp fin_error ; Termina el procedimiento después de mostrar el error
+ 
+mostrar_error_balance: ; Código de error 3 = saldo negativo
+    mov ah, 09h ; Función 09h de INT 21h = imprimir cadena
+    mov dx, offset msg_error_balance ; Mensaje de error por saldo negativo
+    int 21h ; Imprime el mensaje de error por saldo negativo
 
-mostrar_error_balance:
-    mov ah, 09h
-    mov dx, offset msg_error_balance
-    int 21h
+fin_error: ; Termina el procedimiento después de mostrar el error
 
-fin_error:
-
-crear_fin:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+crear_fin: ; Limpia la pila y retorna
+    pop di ; Recuperar registros usados
+    pop si ; Recuperar registros usados
+    pop dx ; Recuperar registros usados
+    pop cx ; Recuperar registros usados
+    pop bx ; Recuperar registros usados
+    pop ax ; Recuperar registros usados
     ret
-procesar_crear_cuenta endp
-
+procesar_crear_cuenta endp ; Fin de procesar_crear_cuenta
 
 ; ============================================================================
 ; PROCEDIMIENTO: procesar_depositar
@@ -891,7 +877,6 @@ fin_depositar:
 
     ret
 procesar_depositar endp
-
 
 ; ============================================================================
 ; PROCEDIMIENTO: procesar_retirar
@@ -1175,9 +1160,9 @@ siguiente_cuenta:
     add si, account_size
     loop reporte_loop
 
-    ; =========================
-    ; Imprimir resultados
-    ; =========================
+; =========================
+; Imprimir resultados
+; =========================
 
     ; Total de activas
     mov ah, 09h
